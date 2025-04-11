@@ -1,1 +1,0 @@
-# Activity-Clustering-using-Motion-Sensors
