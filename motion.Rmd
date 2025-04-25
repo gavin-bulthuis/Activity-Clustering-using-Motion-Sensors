@@ -20,13 +20,15 @@ library(ggrepel)
 library(kernlab)
 library(knitr)
 library(clValid)
+library(dendextend)
+library(ggdendro)
 ```
 
 # Person 1
 
 ### Data Loading
 
-```{r data loading, message=FALSE}
+```{r data-loading, message=FALSE}
 # Create column names based on sensor location
 unit_names <- c("Torso", "RightArm", "LeftArm", "RightLeg", "LeftLeg")
 column_names <- unlist(lapply(unit_names, function(unit) {
@@ -53,6 +55,44 @@ sensor_data_list <- imap(activities, ~ read_activity_data(.x))
 names(sensor_data_list) <- activities
 ```
 
+### Feature Extraction/Engineering
+
+```{r feature-extraction}
+unit_names <- c("Torso", "RightArm", "LeftArm", "RightLeg", "LeftLeg")
+
+# Function to extract features for each file
+feature_extraction <- function(df) {
+  unit_features <- map_dfr(unit_names, function(unit) {
+    unit_data <- df %>% select(starts_with(unit))
+    tibble(
+      unit = unit,
+      mean = mean(unlist(unit_data), na.rm = TRUE),
+      sd = sd(unlist(unit_data), na.rm = TRUE),
+      max = max(unlist(unit_data), na.rm = TRUE),
+      min = min(unlist(unit_data), na.rm = TRUE),
+      bottom_quarter = quantile(unlist(unit_data), probs = 0.25, na.rm = TRUE),
+      top_quarter = quantile(unlist(unit_data), probs = 0.75, na.rm = TRUE),
+      median = median(unlist(unit_data), na.rm = TRUE)
+    )
+  })
+}
+
+# Loop through and apply to all of the activities
+activity_features <- map_dfr(sensor_data_list, feature_extraction, .id = "activity")
+
+# Attach the features back to the data
+attach_features <- function(df) {
+  features <- feature_extraction(df)
+  features_widened <- pivot_wider(features, names_from = unit, 
+                                  values_from = c(mean, sd, max, min, bottom_quarter, top_quarter, median), names_sep = "_")
+  
+  features_repeated <- features_widened[rep(1, nrow(df)), ]
+  bind_cols(df, features_repeated)
+}
+
+sensor_data_w_features <- map(sensor_data_list, attach_features)
+```
+
 ### Raw Sensor Patterns
 
 ```{r activity-patterns}
@@ -71,28 +111,27 @@ ggplot(sitting_data, aes(Time, value, color = Sensor)) +
 
 ### Dimensionality Reduction
 
-```{r Dimensionality Reduction}
+```{r dimensionality-reduction}
 # Initialize matrix to store activities
 activity_matrix <- list()
 
-for (i in names(sensor_data_list)) {
+for (i in names(sensor_data_w_features)) {
   
-  # Get the data
-  data <- sensor_data_list[[i]]
+  # Raw data
+  data <- sensor_data_list[[i]][, 1:45] # Use only raw data
+  sensor_data_scaled <- scale(data) # Scale raw data
+  pca_sensor_data <- prcomp(sensor_data_scaled, center = TRUE, scale. = TRUE) # Apply PCA
+  pcs <- 20 # Choose 20 PCs to keep approx, 80% of cumulative variance
+  reduced_vector <- as.vector(t(pca_sensor_data$x[, 1:pcs])) # Turn into a row-wise vector
   
-  # Scale the data
-  sensor_data_scaled <- scale(data)
+  # Extracted feature data
+  features <- as.data.frame(sensor_data_w_features[[i]][, 46:ncol(sensor_data_w_features[[i]])])
+  features <- as.vector(unlist(features))
   
-  # Apply PCA
-  pca_sensor_data <- prcomp(sensor_data_scaled, center = TRUE, scale. = TRUE)
+  # Combine
+  full_vec <- c(reduced_vector, features)
   
-  # Choose to keep 20 PCs for approx. 80% of the cumulative variance in most activities
-  pcs <- 20
-  
-  # Create a vectorized matrix for the reduced data
-  reduced_vector <- as.vector(t(pca_sensor_data$x[, 1:pcs]))
-  
-  activity_matrix[[i]] <- reduced_vector
+  activity_matrix[[i]] <- full_vec
 }
 ```
 
@@ -125,52 +164,66 @@ ggplot(head(sensor_contrib, 10),
   theme_minimal()
 ```
 
-### Clustering
+### Poor Clustering Methods
 
-```{r Clustering}
-activity_matrix <- do.call(rbind, activity_matrix)
+```{r clustering}
+#activity_matrix <- do.call(rbind, activity_matrix)
 
 # KMeans
 # Select number of activities
-k <- 5
- 
+k <- 9
+
 # Run KMeans
 kmeans_result <- kmeans(activity_matrix, centers = k, nstart = 100)
- 
-# fviz_nbclust(activity_matrix, kmeans, method = "wss")
+
+fviz_nbclust(activity_matrix, kmeans, method = "wss")
 
 
 # Spectral Clustering
-sc <- specc(activity_matrix, centers = 7)
- 
+sc <- specc(activity_matrix, centers = 9)
+
 activity_data <- as.data.frame(activity_matrix)
 activity_data$Activity <- c("Sitting", "Standing", "Lying on Back", "Lying on Side", "Ascending Stairs",
-                             "Descending Stairs", "Standing in Elevator", "Moving in Elevator", 
-                             "Walking Parking Lot", "Walking on Treadmill", "Walking on Inclined Treadmill",
-                             "Running on Treadmill", "Exercising on Stairmaster", "Exercising on Elliptical",
-                             "Stationary Bike in Horizontal Position", "Stationary Bike in Vertical Position",
-                             "Rowing", "Jumping", "Playing Basketball")
- 
-# Cluster assignments before reducing dimensionality again
+                              "Descending Stairs", "Standing in Elevator", "Moving in Elevator",
+                              "Walking Parking Lot", "Walking on Treadmill", "Walking on Inclined Treadmill",
+                              "Running on Treadmill", "Exercising on Stairmaster", "Exercising on Elliptical",
+                              "Stationary Bike in Horizontal Position", "Stationary Bike in Vertical Position",
+                              "Rowing", "Jumping", "Playing Basketball")
+
 clusters <- sc@.Data
 activity_data$Clusters <- clusters
 
 # New data frame to view clusters
 spectral <- activity_data %>% select(Activity, Clusters)
+```
 
+### Hierarchical Clustering
 
+```{r}
 # Hierarchical Clustering
 hc <- hclust(dist(activity_matrix), method = "ward.D2")
-hc$labels <- c("Sitting", "Standing", "Lying on Back", "Lying on Side", "Ascending  
-               Stairs","Descending Stairs", "Standing in Elevator", "Moving in Elevator",                "Walking Parking Lot", "Walking on Treadmill", 
-               "Walking on Inclined Treadmill", "Running on Treadmill", 
-               "Exercising on Stairmaster", "Exercising on Elliptical",
-              "Stationary Bike in Horizontal Position", 
-              "Stationary Bike in Vertical  Position", "Rowing", "Jumping", 
-              "Playing  Basketball")
+hc$labels <- c("Sitting", "Standing", "Lying on Back", "Lying on Side", "Ascending Stairs", "Descending Stairs", "Standing in Elevator", "Moving in Elevator", "Walking Parking Lot", "Walking on Treadmill", "Walking on Inclined Treadmill", "Running on Treadmill", "Exercising on Stairmaster", "Exercising on Elliptical", "Stationary Bike in Horizontal Position", "Stationary Bike in Vertical Position", "Rowing", "Jumping", "Playing  Basketball")
 
 plot(hc, cex = 0.5)
+
+
+# 9 clusters seems to work pretty well here
+sort(cutree(hc, 9))
 ```
+
+### Hierarchical Clustering Plots
+
+```{r}
+dend <-  as.dendrogram(hc)
+
+dend %>%
+  set("branches_k_color", k = 9) %>%   # color by cluster
+  set("labels_cex", 0.4) %>%           # shrink labels
+  set("labels_colors", k = 9) %>%      # color labels by cluster
+  set("branches_lwd", 3) %>%           # branch width
+  plot(main = "Activities Dendogram for Person 1")
+```
+
 
 ### Clustering Method Comparison
 
@@ -178,7 +231,7 @@ plot(hc, cex = 0.5)
 # Calculate silhouette scores
 kmeans_silhouette <- mean(silhouette(kmeans_result$cluster, dist(activity_matrix))[, 3])
 spectral_silhouette <- mean(silhouette(sc@.Data, dist(activity_matrix))[, 3])
-hierarchical_clusters <- cutree(hc, k = 5)  # Use k=5 for fair comparison
+hierarchical_clusters <- cutree(hc, k = 9)  
 hierarchical_silhouette <- mean(silhouette(hierarchical_clusters, dist(activity_matrix))[, 3])
 
 # Get actual number of spectral clusters
@@ -187,7 +240,7 @@ num_spectral_clusters <- length(unique(sc@.Data))
 # Create comparison table
 clustering_results <- data.frame(
   Method = c("K-Means", "Spectral", "Hierarchical"),
-  Num_Clusters = c(5, num_spectral_clusters, 5),
+  Num_Clusters = c(9, num_spectral_clusters, 9),
   Silhouette_Score = round(c(kmeans_silhouette, spectral_silhouette, hierarchical_silhouette), 4),
   Description = c(
     "Centroid-based partitioning",
@@ -210,7 +263,7 @@ dunn_indices <- data.frame(
   Dunn_Index = c(
     dunn(clusters = kmeans_result$cluster, Data = activity_matrix),
     dunn(clusters = sc@.Data, Data = activity_matrix),
-    dunn(clusters = cutree(hc, k=5), Data = activity_matrix)
+    dunn(clusters = cutree(hc, k=9), Data = activity_matrix)
   )
 )
 
@@ -224,34 +277,34 @@ validation_results %>%
 
 ### Reapply PCA for Visualization
 
-```{r PCA for Visualization}
-# Run PCA to reduce to 2D for plotting
-pca_activity <- prcomp(activity_matrix, center = TRUE, scale. = TRUE)
-
-# Get the first 2 principal components
-activity_data <- as.data.frame(pca_activity$x[, 1:2])
-colnames(activity_data) <- c("PC1", "PC2")
-
-# Add cluster assignments from k-means
-activity_data$Cluster <- as.factor(sc@.Data)
-
-# Add activity labels
-activity_data$Activity <- c("Sitting", "Standing", "Lying on Back", "Lying on Side", "Ascending Stairs",
-                            "Descending Stairs", "Standing in Elevator", "Moving in Elevator", 
-                            "Walking Parking Lot", "Walking on Treadmill", "Walking on Inclined Treadmill",
-                            "Running on Treadmill", "Exercising on Stairmaster", "Exercising on Elliptical",
-                            "Stationary Bike in Horizontal Position", "Stationary Bike in Vertical Position",
-                            "Rowing", "Jumping", "Playing Basketball")
+```{r pca-visualization}
+# # Run PCA to reduce to 2D for plotting
+# pca_activity <- prcomp(activity_matrix, center = TRUE, scale. = TRUE)
+# 
+# # Get the first 2 principal components
+# activity_data <- as.data.frame(pca_activity$x[, 1:2])
+# colnames(activity_data) <- c("PC1", "PC2")
+# 
+# # Add cluster assignments from k-means
+# activity_data$Cluster <- as.factor(sc@.Data)
+# 
+# # Add activity labels
+# activity_data$Activity <- c("Sitting", "Standing", "Lying on Back", "Lying on Side", "Ascending Stairs",
+#                             "Descending Stairs", "Standing in Elevator", "Moving in Elevator", 
+#                             "Walking Parking Lot", "Walking on Treadmill", "Walking on Inclined Treadmill",
+#                             "Running on Treadmill", "Exercising on Stairmaster", "Exercising on Elliptical",
+#                             "Stationary Bike in Horizontal Position", "Stationary Bike in Vertical Position",
+#                             "Rowing", "Jumping", "Playing Basketball")
 
 ```
 
 ### Plot Clusters
 
-```{r Plotting}
-ggplot(activity_data, aes(x = PC1, y = PC2, color = Cluster, label = Activity)) +
-  geom_point(size = 3) +
-  geom_text_repel(size = 3, max.overlaps = 25, box.padding = 0.35, point.padding = 0.3) +
-  theme_minimal() +
-  labs(title = "K-Means Clustering of Sensor Activities", x = "PC1", y = "PC2") +
-  scale_color_brewer(palette = "Set2")
+```{r plotting}
+# ggplot(activity_data, aes(x = PC1, y = PC2, color = Cluster, label = Activity)) +
+#   geom_point(size = 3) +
+#   geom_text_repel(size = 3, max.overlaps = 25, box.padding = 0.35, point.padding = 0.3) +
+#   theme_minimal() +
+#   labs(title = "K-Means Clustering of Sensor Activities", x = "PC1", y = "PC2") +
+#   scale_color_brewer(palette = "Set2")
 ```
