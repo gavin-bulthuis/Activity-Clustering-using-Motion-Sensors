@@ -43,18 +43,18 @@ The goal of this project was to determine if raw sensor data could be used to cl
 
 To accomplish this goal, we used the following process:
 
-  - ** Dimensionality Reduction **
+  - **Dimensionality Reduction**
      - Principal Component Analysis: Utilized to reduce the dimensionality of the data from 45 to 20 features per person in each activity. Over half of the features were removed while still keeping roughly 80% of the variance per activity.
 
-  - ** Feature Extraction **
+  - **Feature Extraction**
      - Summary Statistics: Features that were extracted from each sensor in each activity such as the mean, median, standard deviation, and more. These were added as features to the already reduced raw data to provide a comprehensive representation of motion dynamics.
  
-  - ** Clustering Methods **
+  - **Clustering Methods**
       - K-Means Clustering: Partitions data into k clusters by minimizing the variance within each cluster using centroid-based assignments.
       - Spectral Clustering: Uses the eigenvalues of a similarity matrix to transform data into a lower-dimensional space, then applies clustering in that space.
       - Hierarchical Clustering: Builds a tree-like structure of nested clusters by either merging (agglomerative) or splitting (divisive) data based on a distance metric.
  
-  - ** Cluster Validation **
+  - **Cluster Validation**
     - Silhouette Score: Measures how well-separated the clusters are by comparing intra-cluster cohesion with inter-cluster separation.
     - Dunn Index: Evaluates compactness and separation of clustersby considering the ratio between the smallest and inter-cluster distance and largest intra-cluster distance.
   
@@ -65,22 +65,22 @@ We determined that the activities best fit into 3 large branches in high, medium
 
 * Low Intensity:
   * Stationary Movements:
-    * 1. Lying on Side, Lying on Back, Standing, Sitting, Standing in Elevator
+    * Lying on Side, Lying on Back, Standing, Sitting, Standing in Elevator
 * Medium Intensity:
   * Biking Movements: 
-    * 2. Stationary Bike in Horizontal/Vertical Position
+    * Stationary Bike in Horizontal/Vertical Position
   * Rowing Movements: 
-    * 3. Rowing
+    * Rowing
   * Flat Walking Movements: 
-    * 4. Walking on a Treadmill, Walking in a Parking Lot
+    * Walking on a Treadmill, Walking in a Parking Lot
   * Incline/Decline Movements: 
-    * 5. Ascending Stairs, Descending Stairs, Walking on Incline Treadmill
+    * Ascending Stairs, Descending Stairs, Walking on Incline Treadmill
   * Other Machine-Based Movements: 
-    * 6. Exercising on an Elliptical, Moving in an Elevator, Walking on Stairmaster
+    * Exercising on an Elliptical, Moving in an Elevator, Walking on Stairmaster
 * High Intensity:
-    * 7. Playing Basketball
-    * 8. Running on a Treadmill
-    * 9. Jumping
+    * Playing Basketball
+    * Running on a Treadmill
+    * Jumping
 
 Using 9 clusters gave us the following results for Silhoutte Score and Dunn Index. 
 
@@ -99,4 +99,5 @@ Using 9 clusters gave us the following results for Silhoutte Score and Dunn Inde
 Our research paper goes more in-depth on the specific clustering results using the Hierarchical method and outputs a dendrogram for all 8 subjects.
 
 ## Conclusion
-The results indicate that Hierarchical Clustering clusters specific activities the best. The benefits of using this method also include for the user to specify the number of clusters after visualizing the output. Hierarchical Clustering not only had the best performance in terms of Silhoutte Score and Dunn Index, but also placed activities in the correct branch of high, medium, and low intensity over 90% of the time.
+The results from our cluster validation indicates that Hierarchical Clustering clusters specific activities the best. Simply visualizing the dendograms supports this claim as well. 
+The benefits of using this method also include for the user to specify the number of clusters and distance measure depending on the subject. Hierarchical Clustering not only had the best performance in terms of Silhoutte Score and Dunn Index, but also placed activities in the correct branch of high, medium, and low intensity over 90% of the time.
